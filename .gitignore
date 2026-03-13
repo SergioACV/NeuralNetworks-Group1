@@ -1,0 +1,26 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints
+
+# --- Machine Learning / Data ---
+# Ignora archivos de datos pesados (comenta si necesitas subir alguno pequeño)
+*.csv
+*.json
+*.h5
+*.pth
+*.pkl
+*.npy
+data/
+datasets/
+
+# --- Configuración de IDE ---
+.vscode/
+.idea/
+.DS_Store
