@@ -34,7 +34,7 @@ conda activate env_name
 
 pip install -r requirements.txt
 
-📂 Repository Structure
+## 📂 Repository Structure
 
 data/: Contains the datasets (if they are not too large).
 
@@ -44,6 +44,6 @@ src/: Python scripts with the model logic.
 
 models/: Trained model files (optional).
 
-📊 Results
+## 📊 Results
 
 Briefly mention the results obtained (Accuracy, Loss, etc.) or include any important graphs.
