@@ -28,11 +28,28 @@ cd NeuralNetworks-Group1
 
 2. Create and activate a virtual environment.
 
+With Conda
+
 conda create --name env_name python=3.xx -y
 
 conda activate env_name
 
 pip install -r requirements.txt
+
+With Python
+
+# Crear el entorno virtual
+python3 -m venv venv
+
+# Activar el entorno (Linux/macOS)
+source venv/bin/activate
+
+# Activar el entorno (Windows)
+venv\Scripts\activate
+
+# Instalar dependencias
+pip install -r requirements.txt
+
 
 ## 📂 Repository Structure
 
