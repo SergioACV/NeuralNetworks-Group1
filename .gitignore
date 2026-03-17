@@ -12,13 +12,13 @@ my_env/
 
 # --- Machine Learning / Data ---
 # Ignora archivos de datos pesados (comenta si necesitas subir alguno pequeño)
-*.csv
+#*.csv
 *.json
 *.h5
 *.pth
 *.pkl
 *.npy
-data/
+#data/
 datasets/
 
 # --- Configuración de IDE ---
