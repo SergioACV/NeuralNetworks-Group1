@@ -19,6 +19,7 @@ my_env/
 *.pkl
 *.npy
 #data/
+data/processed/*
 datasets/
 
 # --- Configuración de IDE ---
