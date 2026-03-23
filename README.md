@@ -50,6 +50,9 @@ venv\Scripts\activate
 # Instalar dependencias
 pip install -r requirements.txt
 
+# Run jupyter
+Jupyter notebooks
+
 
 ## 📂 Repository Structure
 
