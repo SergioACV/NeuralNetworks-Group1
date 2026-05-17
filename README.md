@@ -51,7 +51,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Run jupyter
-Jupyter notebooks
+Jupyter notebook
 
 
 ## 📂 Repository Structure
