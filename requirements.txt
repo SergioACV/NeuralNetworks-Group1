@@ -112,6 +112,7 @@ setuptools
 six
 soupsieve
 stack-data
+tensorflow
 tensorflow-macos
 tensorflow-metal
 termcolor
