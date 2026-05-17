@@ -53,6 +53,7 @@ pip install -r requirements.txt
 # Run jupyter
 Jupyter notebook
 
+if you are on windows please, on requirements.txt file, you must delete  tensorflow-macos and tensorflow-metal
 
 ## 📂 Repository Structure
 
