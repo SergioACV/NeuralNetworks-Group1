@@ -11,6 +11,19 @@ from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.model_selection import train_test_split
 
+# Check GPU availability
+print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"GPU configurada correctamente: {gpus}")
+    except RuntimeError as e:
+        print(e)
+else:
+    print("Advertencia: No se detectó GPU. El entrenamiento será más lento.")
+
 # Load Dataset
 df = pd.read_csv("./data/dataset_lstm.csv")
 
@@ -42,31 +55,32 @@ X_tr, X_val, y_tr, y_val = train_test_split(
 )
 
 # Build and train model
-model = Sequential()
-model.add(LSTM(units=25, input_shape=(240, 1), dropout=0.1, recurrent_dropout=0.1))
-model.add(Dense(units=2, activation='softmax'))
+with tf.device('/GPU:0'):
+    model = Sequential()
+    model.add(LSTM(units=25, input_shape=(240, 1), dropout=0.1, recurrent_dropout=0.1))
+    model.add(Dense(units=2, activation='softmax'))
 
-model.compile(
-    optimizer=RMSprop(),
-    loss='sparse_categorical_crossentropy',
-    metrics=['accuracy']
-)
+    model.compile(
+        optimizer=RMSprop(),
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
 
-early_stopping = EarlyStopping(
-    monitor='val_loss',
-    patience=10,
-    restore_best_weights=True
-)
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True
+    )
 
-history = model.fit(
-    X_tr,
-    y_tr,
-    epochs=1000,
-    batch_size=32,
-    validation_data=(X_val, y_val),
-    callbacks=[early_stopping],
-    shuffle=True
-)
+    history = model.fit(
+        X_tr,
+        y_tr,
+        epochs=1000,
+        batch_size=32,
+        validation_data=(X_val, y_val),
+        callbacks=[early_stopping],
+        shuffle=True
+    )
 
 model.summary()
 
