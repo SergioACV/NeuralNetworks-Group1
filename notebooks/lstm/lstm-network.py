@@ -54,6 +54,10 @@ X_tr, X_val, y_tr, y_val = train_test_split(
     random_state=42
 )
 
+# Reshape data for LSTM (samples, timesteps, features)
+X_tr = X_tr.values.reshape(-1, 240, 1)
+X_val = X_val.values.reshape(-1, 240, 1)
+
 # Build and train model
 with tf.device('/GPU:0'):
     model = Sequential()
