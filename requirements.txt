@@ -132,3 +132,4 @@ webencodings
 websocket-client
 wheel
 wrapt
+bayesian-optimization
