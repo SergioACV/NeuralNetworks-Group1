@@ -250,7 +250,7 @@ def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cl
             ]
         ),
         callbacks=[early_stopping, checkpoint],
-        epochs=100,
+        epochs=15,
         batch_size=256,
         shuffle=False,
         verbose=1
