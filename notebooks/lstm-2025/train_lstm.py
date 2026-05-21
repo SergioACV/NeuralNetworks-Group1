@@ -1,6 +1,9 @@
-import os
+
+from pathlib import Path
+
 import numpy as np
 import tensorflow as tf
+from sklearn.utils.class_weight import compute_class_weight
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import (
@@ -20,46 +23,58 @@ from tensorflow.keras.initializers import (
     Zeros
 )
 
-# =====================================================
-# GPU CONFIG
-# =====================================================
 
-print("TensorFlow version:", tf.__version__)
-print("GPUs disponibles:", tf.config.list_physical_devices('GPU'))
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / 'data' / 'financial_dataset.npz'
+MODELS_DIR = BASE_DIR / 'models'
+MODEL_PATH = MODELS_DIR / 'attention_lstm_model.keras'
 
-physical_gpus = tf.config.list_physical_devices('GPU')
 
-for gpu in physical_gpus:
-    try:
-        tf.config.experimental.set_memory_growth(gpu, True)
-    except:
-        pass
+def load_data(data_path):
+    data = np.load(data_path)
 
-# =====================================================
-# LOAD DATA
-# =====================================================
+    X = data['X']
+    y_regression = data['y_regression']
+    y_classification = data['y_classification']
+    sequence_dates = data['sequence_dates']
 
-DATA_PATH = './data/financial_dataset.npz'
+    return X, y_regression, y_classification, sequence_dates
 
-if not os.path.exists(DATA_PATH):
-    raise FileNotFoundError(
-        f"No se encontró el dataset en: {DATA_PATH}"
+
+def split_data(X, y_regression, y_classification, sequence_dates):
+    train_mask = sequence_dates < np.datetime64('2017-01-01')
+
+    val_mask = (
+        (sequence_dates >= np.datetime64('2017-01-01')) &
+        (sequence_dates < np.datetime64('2018-01-01'))
     )
 
-print("\nCargando dataset...")
+    test_mask = sequence_dates >= np.datetime64('2018-01-01')
 
-data = np.load(DATA_PATH)
+    return {
+        'train': (
+            X[train_mask],
+            y_regression[train_mask],
+            y_classification[train_mask]
+        ),
+        'validation': (
+            X[val_mask],
+            y_regression[val_mask],
+            y_classification[val_mask]
+        ),
+        'test': (
+            X[test_mask],
+            y_regression[test_mask],
+            y_classification[test_mask]
+        )
+    }
 
-X = data['X']
-y = data['y']
-sequence_dates = data['sequence_dates']
 
-print("X shape:", X.shape)
-print("y shape:", y.shape)
-
-# =====================================================
-# MODEL
-# =====================================================
+def print_split_info(split_name, X_split, y_reg_split, y_cls_split):
+    print(f"\n====================\n{split_name.upper()}\n====================")
+    print(X_split.shape)
+    print(y_reg_split.shape)
+    print(y_cls_split.shape)
 
 
 def build_attention_lstm_model(
@@ -70,6 +85,7 @@ def build_attention_lstm_model(
     inputs = Input(
         shape=(seq_len, n_features)
     )
+
 
     x = LSTM(
         units=64,
@@ -107,140 +123,143 @@ def build_attention_lstm_model(
     x = Dense(16)(x)
     x = PReLU()(x)
 
-    x = Dense(8)(x)
-    x = PReLU()(x)
+    shared_representation = Dense(8)(x)
+    shared_representation = PReLU()(shared_representation)
 
-    outputs = Dense(
+
+    regression_output = Dense(
         1,
-        activation='linear'
-    )(x)
+        activation='linear',
+        name='regression_output'
+    )(shared_representation)
+
+
+    classification_output = Dense(
+        1,
+        activation='sigmoid',
+        name='classification_output'
+    )(shared_representation)
+
 
     model = Model(
         inputs=inputs,
-        outputs=outputs
+        outputs=[
+            regression_output,
+            classification_output
+        ]
     )
 
     return model
 
-# =====================================================
-# BUILD MODEL
-# =====================================================
 
-SEQ_LEN = X.shape[1]
-N_FEATURES = X.shape[2]
+def compile_model(model):
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=1e-3
+        ),
+        loss=[
+            'mse',
+            tf.keras.losses.BinaryFocalCrossentropy()
+        ],
+        loss_weights=[
+            1.0,
+            0.5
+        ],
+        metrics=[
+            ['mae'],
+            [
+                'accuracy',
+                tf.keras.metrics.Precision(),
+                tf.keras.metrics.Recall()
+            ]
+        ]
+    )
 
-model = build_attention_lstm_model(
-    seq_len=SEQ_LEN,
-    n_features=N_FEATURES
-)
 
-model.summary()
+def compute_sample_weights(y_cls_train):
+    classes = np.unique(y_cls_train)
 
-# =====================================================
-# COMPILE
-# =====================================================
+    weights = compute_class_weight(
+        class_weight='balanced',
+        classes=classes,
+        y=y_cls_train
+    )
 
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(
-        learning_rate=1e-3
-    ),
-    loss='mse',
-    metrics=['mae']
-)
+    class_weights = dict(zip(classes, weights))
 
-# =====================================================
-# TRAIN / VAL / TEST SPLIT
-# =====================================================
+    regression_weights = np.ones(len(y_cls_train))
+    classification_weights = np.array([
+        class_weights[int(label)]
+        for label in y_cls_train.ravel()
+    ])
 
-train_mask = sequence_dates < np.datetime64('2017-01-01')
+    return regression_weights, classification_weights, class_weights
 
-val_mask = (
-    (sequence_dates >= np.datetime64('2017-01-01')) &
-    (sequence_dates < np.datetime64('2018-01-01'))
-)
 
-test_mask = sequence_dates >= np.datetime64('2018-01-01')
+def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cls_val):
+    regression_weights, classification_weights, class_weights = compute_sample_weights(y_cls_train)
 
-X_train = X[train_mask]
-y_train = y[train_mask]
+    print(class_weights)
 
-X_val = X[val_mask]
-y_val = y[val_mask]
+    history = model.fit(
+        X_train,
+        [
+            y_reg_train,
+            y_cls_train
+        ],
+        sample_weight=[
+            regression_weights,
+            classification_weights
+        ],
+        validation_data=(
+            X_val,
+            [
+                y_reg_val,
+                y_cls_val
+            ]
+        ),
+        epochs=100,
+        batch_size=256,
+        shuffle=False,
+        verbose=1
+    )
 
-X_test = X[test_mask]
-y_test = y[test_mask]
+    return history
 
-print("\n====================")
-print("TRAIN")
-print("====================")
-print(X_train.shape)
-print(y_train.shape)
 
-print("\n====================")
-print("VALIDATION")
-print("====================")
-print(X_val.shape)
-print(y_val.shape)
+def save_model(model, model_path):
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model.save(model_path)
 
-print("\n====================")
-print("TEST")
-print("====================")
-print(X_test.shape)
-print(y_test.shape)
+def main():
+    X, y_regression, y_classification, sequence_dates = load_data(DATA_PATH)
+    splits = split_data(X, y_regression, y_classification, sequence_dates)
 
-# =====================================================
-# TRAINING
-# =====================================================
+    X_train, y_reg_train, y_cls_train = splits['train']
+    X_val, y_reg_val, y_cls_val = splits['validation']
+    X_test, y_reg_test, y_cls_test = splits['test']
 
-history = model.fit(
-    X_train,
-    y_train,
-    validation_data=(X_val, y_val),
-    epochs=100,
-    batch_size=256,
-    shuffle=False,
-    verbose=1
-)
+    print_split_info('train', X_train, y_reg_train, y_cls_train)
+    print_split_info('validation', X_val, y_reg_val, y_cls_val)
+    print_split_info('test', X_test, y_reg_test, y_cls_test)
 
-# =====================================================
-# EVALUATION
-# =====================================================
+    model = build_attention_lstm_model(
+        seq_len=X.shape[1],
+        n_features=X.shape[2]
+    )
+    compile_model(model)
+    train_model(
+        model,
+        X_train,
+        y_reg_train,
+        y_cls_train,
+        X_val,
+        y_reg_val,
+        y_cls_val
+    )
+    save_model(model, MODEL_PATH)
 
-print("\nEvaluando modelo...")
 
-loss, mae = model.evaluate(
-    X_test,
-    y_test,
-    verbose=1
-)
+if __name__ == '__main__':
+    main()
 
-print(f"\nTest Loss: {loss:.6f}")
-print(f"Test MAE : {mae:.6f}")
-
-# =====================================================
-# SAVE MODEL
-# =====================================================
-
-SAVE_PATH = './models/attention_lstm_model.keras'
-
-model.save(SAVE_PATH)
-
-print(f"\nModelo guardado en: {SAVE_PATH}")
-
-# =====================================================
-# SAMPLE PREDICTIONS
-# =====================================================
-
-predictions = model.predict(X_test[:10])
-
-print("\nPredicciones ejemplo:")
-print(predictions.flatten())
-
-print("\nValores reales:")
-print(y_test[:10].flatten())
-
-# =====================================================
-# REQUIREMENTS
-# =====================================================
-
-# pip install tensorflow numpy
