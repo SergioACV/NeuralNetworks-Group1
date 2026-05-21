@@ -17,7 +17,7 @@ from tensorflow.keras.layers import (
     LayerNormalization,
     PReLU
 )
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.initializers import (
@@ -224,6 +224,14 @@ def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cl
         verbose=1
     )
 
+    checkpoint = ModelCheckpoint(
+        filepath=MODEL_PATH,
+        monitor='val_classification_output_accuracy',
+        save_best_only=True,
+        mode='max',
+        verbose=1
+    )
+
     history = model.fit(
         X_train,
         [
@@ -241,7 +249,7 @@ def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cl
                 y_cls_val
             ]
         ),
-        callbacks=[early_stopping],
+        callbacks=[early_stopping, checkpoint],
         epochs=100,
         batch_size=256,
         shuffle=False,
