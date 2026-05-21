@@ -1,4 +1,6 @@
 
+import os
+import random
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,18 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / 'data' / 'financial_dataset.npz'
 MODELS_DIR = BASE_DIR / 'models'
 MODEL_PATH = MODELS_DIR / 'attention_lstm_model.keras'
+SEED = 42
+
+
+os.environ['PYTHONHASHSEED'] = str(SEED)
+random.seed(SEED)
+np.random.seed(SEED)
+tf.keras.utils.set_random_seed(SEED)
+
+try:
+    tf.config.experimental.enable_op_determinism()
+except Exception:
+    pass
 
 
 def load_data(data_path):
@@ -177,6 +191,7 @@ def compile_model(model):
 
 
 def compute_sample_weights(y_cls_train):
+    y_cls_train = np.asarray(y_cls_train).ravel()
     classes = np.unique(y_cls_train)
 
     weights = compute_class_weight(
@@ -190,7 +205,7 @@ def compute_sample_weights(y_cls_train):
     regression_weights = np.ones(len(y_cls_train))
     classification_weights = np.array([
         class_weights[int(label)]
-        for label in y_cls_train.ravel()
+        for label in y_cls_train
     ])
 
     return regression_weights, classification_weights, class_weights
