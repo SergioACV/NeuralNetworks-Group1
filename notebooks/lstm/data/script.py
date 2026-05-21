@@ -1,498 +1,96 @@
-# ============================================================
-# BAYESIAN-OPTIMIZED LSTM FOR STOCK PRICE PREDICTION
-# Based on:
-# "Bayesian-Optimized LSTM Framework for Accurate Stock Price Prediction"
-# ============================================================
-
-# ============================================================
-# INSTALL (RUN ONLY ONCE)
-# ============================================================
-# pip install pandas numpy scikit-learn matplotlib tensorflow bayesian-optimization
-
-# ============================================================
-# IMPORTS
-# ============================================================
-
-import warnings
-warnings.filterwarnings("ignore")
-
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import (
-    mean_absolute_percentage_error,
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score
-)
-
-from bayes_opt import BayesianOptimization
-
-import tensorflow as tf
-
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import (
-    Dense,
-    LSTM,
-    Dropout
-)
-
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import (
-    EarlyStopping,
-    ReduceLROnPlateau
-)
-
-# ============================================================
-# REPRODUCIBILITY
-# ============================================================
-
-SEED = 42
-
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-
-# ============================================================
-# CONFIG
-# ============================================================
-
-CSV_PATH = "../../../data/processed/dataset_with_returns.csv"   # CHANGE THIS
-
-WINDOW_SIZE = 30
-
-EPOCHS_BO = 10
-EPOCHS_FINAL = 50
-
-TARGET = "adjusted_price"
-
-FEATURES = [
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "return_1d"
-]
-
-# ============================================================
-# LOAD DATA
-# ============================================================
-
-print("\nLoading dataset...\n")
-
-df = pd.read_csv(CSV_PATH)
-
-df["date"] = pd.to_datetime(df["date"])
-
-df = df.sort_values(["Name", "date"])
-
-print(df.head())
-
-# ============================================================
-# OPTIONAL:
-# TRAIN ONLY ONE STOCK
-# ============================================================
-
-# Example:
-# df = df[df["Name"] == "AAPL"]
-
-# ============================================================
-# REMOVE MISSING VALUES
-# ============================================================
-
-df = df.dropna()
-
-# ============================================================
-# SCALE FEATURES
-# ============================================================
-
-feature_scaler = MinMaxScaler()
-target_scaler = MinMaxScaler()
-
-df[FEATURES] = feature_scaler.fit_transform(df[FEATURES])
-
-df[[TARGET]] = target_scaler.fit_transform(df[[TARGET]])
-
-# ============================================================
-# CREATE SEQUENCES
-# ============================================================
-
-def create_sequences(dataframe, features, target, window):
-
-    X = []
-    y = []
-
-    values = dataframe[features + [target]].values
-
-    for i in range(window, len(values)):
-
-        X.append(values[i-window:i, :-1])
-        y.append(values[i, -1])
-
-    return np.array(X), np.array(y)
-
-X, y = create_sequences(
-    df,
-    FEATURES,
-    TARGET,
-    WINDOW_SIZE
-)
-
-print("\nSequence shapes:")
-print("X:", X.shape)
-print("y:", y.shape)
-
-# ============================================================
-# TRAIN / VALIDATION / TEST SPLIT
-# ============================================================
-
-train_size = int(len(X) * 0.70)
-val_size = int(len(X) * 0.15)
-
-X_train = X[:train_size]
-y_train = y[:train_size]
-
-X_val = X[train_size:train_size + val_size]
-y_val = y[train_size:train_size + val_size]
-
-X_test = X[train_size + val_size:]
-y_test = y[train_size + val_size:]
-
-print("\nDataset split:")
-print("Train:", X_train.shape)
-print("Validation:", X_val.shape)
-print("Test:", X_test.shape)
-
-# ============================================================
-# MODEL FUNCTION
-# ============================================================
-
-def build_model(
-    units=64,
-    dropout=0.2,
-    learning_rate=0.001
-):
-
-    model = Sequential()
-
-    model.add(
-        LSTM(
-            units=int(units),
-            input_shape=(
-                X_train.shape[1],
-                X_train.shape[2]
-            )
-        )
-    )
-
-    model.add(Dropout(dropout))
-
-    model.add(Dense(1))
-
-    optimizer = Adam(
-        learning_rate=learning_rate
-    )
-
-    model.compile(
-        optimizer=optimizer,
-        loss="mse",
-        metrics=["mae"]
-    )
-
-    return model
-
-# ============================================================
-# BAYESIAN OPTIMIZATION OBJECTIVE FUNCTION
-# ============================================================
-
-def objective(
-    units,
-    dropout,
-    learning_rate,
-    batch_size
-):
-
-    units = int(units)
-    batch_size = int(batch_size)
-
-    model = build_model(
-        units=units,
-        dropout=dropout,
-        learning_rate=learning_rate
-    )
-
-    early_stop = EarlyStopping(
-        monitor="val_loss",
-        patience=3,
-        restore_best_weights=True
-    )
-
-    history = model.fit(
-        X_train,
-        y_train,
-        validation_data=(X_val, y_val),
-        epochs=EPOCHS_BO,
-        batch_size=batch_size,
-        verbose=0,
-        callbacks=[early_stop]
-    )
-
-    predictions = model.predict(
-        X_val,
-        verbose=0
-    )
-
-    mse = mean_squared_error(
-        y_val,
-        predictions
-    )
-
-    return -mse
-
-# ============================================================
-# BAYESIAN OPTIMIZATION
-# ============================================================
-
-print("\nStarting Bayesian Optimization...\n")
-
-pbounds = {
-    "units": (32, 256),
-    "dropout": (0.1, 0.5),
-    "learning_rate": (1e-4, 1e-2),
-    "batch_size": (16, 128)
-}
-
-optimizer = BayesianOptimization(
-    f=objective,
-    pbounds=pbounds,
-    random_state=SEED,
-    verbose=2
-)
-
-optimizer.maximize(
-    init_points=5,
-    n_iter=10
-)
-
-# ============================================================
-# BEST PARAMETERS
-# ============================================================
-
-best_params = optimizer.max["params"]
-
-best_units = int(best_params["units"])
-best_dropout = best_params["dropout"]
-best_learning_rate = best_params["learning_rate"]
-best_batch_size = int(best_params["batch_size"])
-
-print("\nBest Parameters:")
-print(best_params)
-
-# ============================================================
-# BUILD FINAL MODEL
-# ============================================================
-
-print("\nTraining final model...\n")
-
-final_model = build_model(
-    units=best_units,
-    dropout=best_dropout,
-    learning_rate=best_learning_rate
-)
-
-early_stop = EarlyStopping(
-    monitor="val_loss",
-    patience=10,
-    restore_best_weights=True
-)
-
-reduce_lr = ReduceLROnPlateau(
-    monitor="val_loss",
-    factor=0.5,
-    patience=5,
-    verbose=1
-)
-
-history = final_model.fit(
-    X_train,
-    y_train,
-    validation_data=(X_val, y_val),
-    epochs=EPOCHS_FINAL,
-    batch_size=best_batch_size,
-    verbose=1,
-    callbacks=[
-        early_stop,
-        reduce_lr
-    ]
-)
-
-# ============================================================
-# PREDICTIONS
-# ============================================================
-
-print("\nGenerating predictions...\n")
-
-predictions = final_model.predict(
-    X_test,
-    verbose=0
-)
-
-# ============================================================
-# INVERSE SCALE
-# ============================================================
-
-predictions_rescaled = target_scaler.inverse_transform(
-    predictions
-)
-
-y_test_rescaled = target_scaler.inverse_transform(
-    y_test.reshape(-1, 1)
-)
-
-# ============================================================
-# METRICS
-# ============================================================
-
-mape = mean_absolute_percentage_error(
-    y_test_rescaled,
-    predictions_rescaled
-)
-
-mse = mean_squared_error(
-    y_test_rescaled,
-    predictions_rescaled
-)
-
-rmse = np.sqrt(mse)
-
-mae = mean_absolute_error(
-    y_test_rescaled,
-    predictions_rescaled
-)
-
-r2 = r2_score(
-    y_test_rescaled,
-    predictions_rescaled
-)
-
-# ============================================================
-# RESULTS
-# ============================================================
-
-print("\n==============================")
-print("FINAL RESULTS")
-print("==============================")
-
-print(f"MAPE : {mape:.6f}")
-print(f"MAE  : {mae:.6f}")
-print(f"MSE  : {mse:.6f}")
-print(f"RMSE : {rmse:.6f}")
-print(f"R2   : {r2:.6f}")
-
-# ============================================================
-# PLOT TRAINING HISTORY
-# ============================================================
-
-plt.figure(figsize=(12, 5))
-
-plt.plot(
-    history.history["loss"],
-    label="Train Loss"
-)
-
-plt.plot(
-    history.history["val_loss"],
-    label="Validation Loss"
-)
-
-plt.title("Training History")
-
-plt.xlabel("Epoch")
-
-plt.ylabel("Loss")
-
-plt.legend()
-
-plt.show()
-
-# ============================================================
-# PLOT PREDICTIONS
-# ============================================================
-
-plt.figure(figsize=(16, 7))
-
-plt.plot(
-    y_test_rescaled,
-    label="Real Price"
-)
-
-plt.plot(
-    predictions_rescaled,
-    label="Predicted Price"
-)
-
-plt.title("Real vs Predicted Stock Prices")
-
-plt.xlabel("Time")
-
-plt.ylabel("Price")
-
-plt.legend()
-
-plt.show()
-
-# ============================================================
-# SAVE MODEL
-# ============================================================
-
-final_model.save("bayesian_lstm_stock_model.h5")
-
-print("\nModel saved as:")
-print("bayesian_lstm_stock_model.h5")
-
-# ============================================================
-# SAVE PREDICTIONS
-# ============================================================
-
-results_df = pd.DataFrame({
-    "Real": y_test_rescaled.flatten(),
-    "Predicted": predictions_rescaled.flatten()
-})
-
-results_df.to_csv(
-    "predictions.csv",
-    index=False
-)
-
-print("\nPredictions saved as:")
-print("predictions.csv")
-
-# ============================================================
-# OPTIONAL:
-# NEXT DAY PREDICTION
-# ============================================================
-
-last_window = X[-1]
-
-last_window = np.expand_dims(
-    last_window,
-    axis=0
-)
-
-next_prediction = final_model.predict(
-    last_window,
-    verbose=0
-)
-
-next_prediction = target_scaler.inverse_transform(
-    next_prediction
-)
-
-print("\nNext Predicted Price:")
-print(next_prediction[0][0])
-
-# ============================================================
-# END
-# ============================================================
+import numpy as np
+import yfinance as yf
+import simfin as sf
+
+# =====================================================================
+# 1. CONFIGURACIÓN DE SIMFIN (Usando variante Trimestral Gratuita)
+# =====================================================================
+sf.set_api_key('3acf3f87-3043-4c6a-accf-36d178179d7f')
+sf.set_data_dir('~/simfin_data/')
+
+print("Descargando ratios históricos trimestrales de SimFin...")
+# Cambiamos variant='daily' por 'quarterly' para evitar el error 500 de pago
+df_simfin_quarterly = sf.load_derived(variant='quarterly', market='us')
+
+# =====================================================================
+# 2. SELECCIÓN DE TICKERS Y PARAMETRIZACIÓN TEMPORAL (S&P 500)
+# =====================================================================
+tickers_sp500 = ['AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL']
+start_date = "2018-01-01"
+end_date = "2024-04-01"
+
+# Filtrar SimFin para nuestros tickers
+df_simfin_filtered = df_simfin_quarterly.loc[df_simfin_quarterly.index.get_level_values('Ticker').isin(tickers_sp500)]
+
+# =====================================================================
+# 3. CONVERSIÓN DE TRIMESTRAL A DIARIO (Forward Fill)
+# =====================================================================
+print("Indexando y expandiendo ratios trimestrales a frecuencia diaria...")
+df_simfin_filtered = df_simfin_filtered.reset_index()
+df_simfin_filtered['Date'] = pd.to_datetime(df_simfin_filtered['Date'])
+
+# Reindexamos por Ticker y Fecha para rellenar los días intermedios con el último dato conocido (Forward Fill)
+df_list = []
+for ticker, group in df_simfin_filtered.groupby('Ticker'):
+    group = group.set_index('Date').resample('D').ffill()
+    group['Ticker'] = ticker
+    df_list.append(group)
+
+df_simfin_daily = pd.concat(df_list).reset_index()
+df_simfin_daily = df_simfin_daily.query(f'"{start_date}" <= Date <= "{end_date}"')
+df_simfin_daily.set_index(['Ticker', 'Date'], inplace=True)
+
+# =====================================================================
+# 4. DESCARGA Y CÁLCULO DE INDICADORES TÉCNICOS (Yahoo Finance)
+# =====================================================================
+print("Descargando precios y calculando indicadores técnicos de Yahoo Finance...")
+lista_df_yahoo = []
+
+for ticker in tickers_sp500:
+    df_yf = yf.download(ticker, start=start_date, end=end_date, progress=False)
+    if df_yf.empty:
+        continue
+        
+    df_yf = df_yf.reset_index()
+    df_yf['Ticker'] = ticker
+    df_yf['Date'] = pd.to_datetime(df_yf['Date'])
+    
+    # Variables del Paper
+    df_yf['Log_Return'] = np.log(df_yf['Close'] / df_yf['Close'].shift(1))
+    df_yf['Amount'] = df_yf['Close'] * df_yf['Volume']
+    df_yf['Change'] = df_yf['Close'].pct_change()
+    
+    # EMA y MACD (Estrategia de trading)
+    df_yf['EMA_12'] = df_yf['Close'].ewm(span=12, adjust=False).mean()
+    df_yf['EMA_26'] = df_yf['Close'].ewm(span=26, adjust=False).mean()
+    df_yf['MACD_DIF'] = df_yf['EMA_12'] - df_yf['EMA_26']
+    df_yf['MACD_DEA'] = df_yf['MACD_DIF'].ewm(span=9, adjust=False).mean()
+    df_yf['MACD'] = 2 * (df_yf['MACD_DIF'] - df_yf['MACD_DEA'])
+    
+    df_yf_features = df_yf[['Ticker', 'Date', 'Open', 'High', 'Low', 'Close', 
+                            'Volume', 'Amount', 'Change', 'Log_Return', 
+                            'MACD', 'MACD_DIF', 'MACD_DEA']]
+    lista_df_yahoo.append(df_yf_features)
+
+df_yahoo_total = pd.concat(lista_df_yahoo)
+df_yahoo_total.set_index(['Ticker', 'Date'], inplace=True)
+
+# =====================================================================
+# 5. FUSIÓN FINAL DEL DATASET
+# =====================================================================
+print("Fusionando fuentes de datos...")
+dataset_final = df_yahoo_total.join(df_simfin_daily, how='inner')
+
+# Limpieza de NaNs iniciales por lags e indicadores técnicos
+dataset_final.dropna(subset=['Log_Return', 'MACD'], inplace=True)
+
+# Tratar P/E negativos como nulos y removerlos (Instrucción explícita del Paper) 
+if 'Price to Earnings' in dataset_final.columns:
+    dataset_final.loc[dataset_final['Price to Earnings'] < 0, 'Price to Earnings'] = np.nan
+    dataset_final.dropna(subset=['Price to Earnings'], inplace=True)
+
+dataset_final = dataset_final.reset_index()
+
+print(f"\n¡Dataset generado exitosamente! Forma actual: {dataset_final.shape}")
+print(dataset_final[['Ticker', 'Date', 'Close', 'Log_Return', 'Return on Equity', 'Price to Earnings']].head())

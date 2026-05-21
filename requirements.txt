@@ -133,3 +133,6 @@ websocket-client
 wheel
 wrapt
 bayesian-optimization
+ta
+yfinance
+simfin
