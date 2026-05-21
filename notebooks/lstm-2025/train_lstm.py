@@ -17,6 +17,7 @@ from tensorflow.keras.layers import (
     LayerNormalization,
     PReLU
 )
+from tensorflow.keras.callbacks import EarlyStopping
 
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.initializers import (
@@ -216,6 +217,13 @@ def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cl
 
     print(class_weights)
 
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True,
+        verbose=1
+    )
+
     history = model.fit(
         X_train,
         [
@@ -233,6 +241,7 @@ def train_model(model, X_train, y_reg_train, y_cls_train, X_val, y_reg_val, y_cl
                 y_cls_val
             ]
         ),
+        callbacks=[early_stopping],
         epochs=100,
         batch_size=256,
         shuffle=False,
