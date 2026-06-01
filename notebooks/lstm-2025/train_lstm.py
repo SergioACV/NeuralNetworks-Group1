@@ -166,6 +166,25 @@ def build_attention_lstm_model(
 
     return model
 
+def gmadl_loss(a=100.0, b=1.0):
+
+    def loss(y_true, y_pred):
+
+        directional_term = (
+            tf.sigmoid(a * y_true * y_pred)
+            - 0.5
+        )
+
+        magnitude_term = tf.pow(
+            tf.abs(y_true),
+            b
+        )
+
+        loss_value = -directional_term * magnitude_term
+
+        return tf.reduce_mean(loss_value)
+
+    return loss
 
 def compile_model(model):
     model.compile(
@@ -173,7 +192,7 @@ def compile_model(model):
             learning_rate=1e-3
         ),
         loss=[
-            'mse',
+            gmadl_loss(a=100.0, b=1.0),
             tf.keras.losses.BinaryFocalCrossentropy()
         ],
         loss_weights=[
